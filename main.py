@@ -2,10 +2,12 @@ import os
 import json
 import googleapiclient.discovery
 import googleapiclient.errors
+from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound
 
 class YoutubeAi:
     def __init__(self, channel_id):
         self.channel_id = channel_id
+        self.languages = ['hi', 'en']
 
         # API keys
         self.api_key = os.getenv("YOUTUBE_API_KEY")
@@ -14,6 +16,10 @@ class YoutubeAi:
 
         # Defines
         self.youtube = googleapiclient.discovery.build("youtube", "v3", developerKey=self.api_key)
+        self.srt = None
+
+        # Executions
+        os.mkdir(os.path.join('data', self.channel_id))
 
     def get_videos_list(self):
         next_page_token = None
@@ -56,10 +62,28 @@ class YoutubeAi:
             json.dump(self.videos, f, ensure_ascii=False, indent=4)
         print('JSON data dumped success.')
 
+
+    def get_video_subtitle(self, video_id):
+        self.loading = True
+        try:
+            self.srt = YouTubeTranscriptApi.get_transcript(video_id, languages=self.languages)
+        except NoTranscriptFound:
+            pass
+
+        if not self.srt: return
+        
+        for line in self.srt:
+            "/data/channel_id/video_id.subtitle.txt"
+            with open(os.path.join('data', self.channel_id, f"{video_id}.subtitle.txt"), 'a') as f:
+                f.write(f"{line['text']}\n")
+        self.loading = False
+
     
     def execute(self):
         self.get_videos_list()
-        self.dump_video_data(f"data\\{self.channel_id}.videos.json")
+        self.dump_video_data(os.path.join("data", f"{self.channel_id}.videos.json"))
+        for video in self.videos:
+            self.get_video_subtitle(video.id)
         print("Execution completed.")
 
 youtubeai = YoutubeAi('UCwpr_shE_KEjoOVFqbwaGYQ')
