@@ -1,5 +1,6 @@
 # Youtube AI
 RUN /app/main.py
 ```shell
-docker run --rm -v $(pwd)/data:/app/data python-script-runner
+docker build -t python-youtube-ai .
+docker run -it -v youtube_ai_data:/app/data -e YOUTUBE_API_KEY=api-key python-youtube-ai
 ```
