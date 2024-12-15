@@ -2,7 +2,7 @@ import os
 import json
 import logging
 from datetime import datetime
-from pytube import YouTube
+from yt_dlp import YoutubeDL
 
 class VideoDownloader:
     def __init__(self, channel_id):
@@ -61,9 +61,15 @@ class VideoDownloader:
     def download_video(self, video_id):
         try:
             self.logger.info(f"Downloading video {video_id} ...")
-            yt = YouTube(f"http://youtube.com/watch?v={video_id}")
-            stream = yt.streams.get_by_resolution("480p")
-            stream.download(os.path.join("data", self.channel_id, "videos"), filename_prefix=self.video_id)
+            url = f"https://youtube.com/?v={video_id}"
+
+            ydl_options =  {
+                'format': 'bestvideo[height=480]',  # Specify 480p
+                'outtmpl': 'data/%(channel_id)s/videos/%(id)s.%(ext)s',  # Output file name
+            }
+            with YoutubeDL(ydl_options) as  ydl:
+                ydl.download([url])
+            # (os.path.join("data", self.channel_id, "videos"), filename_prefix=self.video_id)
             self.logger.info(f"Video downloaded {video_id} ...")
 
         except Exception as e:

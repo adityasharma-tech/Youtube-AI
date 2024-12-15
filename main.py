@@ -9,10 +9,9 @@ from youtube_transcript_api import YouTubeTranscriptApi
 class YoutubeAi:
     def __init__(self, channel_id):
         self.channel_id = channel_id
-        self.languages = ['hi', 'en']
 
         # API keys
-        self.api_key = os.getenv("YOUTUBE_API_KEY")
+        self.api_key = os.getenv("YOUTUBE_API_KEY") or "AIzaSyADIgPArEEIgcvfpEBz4GkgxG6xLSz5YO4"
         
         self.videos = []
         self.loading = False
@@ -20,7 +19,7 @@ class YoutubeAi:
         # Defines
         self.srt = None
         self.logger = logging.getLogger(__name__)
-        logging.basicConfig(filename=os.path.join('data', "info-{}-{}.log".format(datetime.now().date().strftime("%Y-%m-%d"), datetime.now().time().strftime("%H:%M:%S"))), level=logging.INFO)
+        logging.basicConfig(filename=os.path.join('data', "info-{}-{}.log".format(datetime.now().date().strftime("%Y-%m-%d"), datetime.now().time().strftime("%H-%M-%S"))), level=logging.INFO)
         self.youtube = googleapiclient.discovery.build("youtube", "v3", developerKey=self.api_key)
 
         # Executions
@@ -58,26 +57,32 @@ class YoutubeAi:
         if not self.youtube: return
 
         self.loading = True
+        request = self.youtube.channels().list(
+            part='contentDetails',
+            id=self.channel_id
+        )
+
+        response = request.execute()
+
+        uploads_playlist_id = response['items'][0]['contentDetails']['relatedPlaylists']['uploads']
+
         while True:
-            request = self.youtube.search().list(
-                part="snippet",
-                channelId=self.channel_id,
-                maxResults=100,  # Maximum results per page
+            request = self.youtube.playlistItems().list(
+                part='snippet',
+                playlistId=uploads_playlist_id,
+                maxResults=50,
                 pageToken=next_page_token
             )
 
             response = request.execute()
 
             for item in response['items']:
-                video_id = item['id'].get('videoId')
-                if video_id:
-                    video_title = item['snippet']['title']
-                    video_publish_time = item['snippet']['publishedAt']
-                    self.videos.append({
-                        'id': video_id,
-                        'title': video_title,
-                        'publishedAt': video_publish_time
-                    })
+                video_data = {
+                    'id': item['snippet']['resourceId']['videoId'],
+                    'title': item['snippet']['title'],
+                    'publishedAt': item['snippet']['publishedAt']
+                }
+                self.videos.append(video_data)
             
             next_page_token = response.get('nextPageToken')
 
@@ -97,7 +102,16 @@ class YoutubeAi:
     def get_video_subtitle(self, video_id):
         self.loading = True
         try:
-            self.srt = YouTubeTranscriptApi.get_transcript(video_id, languages=self.languages)
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            language_code = None
+            for transcript in transcript_list:
+                language_code = transcript.language_code
+                break
+            if not language_code: raise Exception("language code not found")
+            transcript = transcript_list.find_transcript([language_code])
+            translated_transcript = transcript.translate('en')
+            self.srt = translated_transcript.fetch()
+                
         except Exception as e:
             self.logger.error("Error during get subtitle for video {}".format(video_id))
             self.logger.error(f"Error: {e}")
@@ -106,7 +120,7 @@ class YoutubeAi:
         file_path = os.path.join('data', self.channel_id, "subtitles", f"{video_id}.subtitles.txt")
         
         for line in self.srt:
-            with open(file_path, 'a') as f:
+            with open(file_path, 'a', encoding="utf-8") as f:
                 f.write(f"{line['text']}\n")
         self.loading = False
 
