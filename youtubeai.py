@@ -6,21 +6,22 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.chains import RetrievalQA
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_astradb import AstraDBVectorStore
 
-class NotebookLmApp:
+class YoutubeChannelLm:
     def __init__(self, channel_id, api_key, model_name="gemini-1.5-flash"):
         self.api_key = api_key
         self.channel_id = channel_id
+
+        self.system_message = SystemMessage(content=(
+                "You are an intelligent assistant for a YouTube channel archive. "
+                "Your role is to analyze video transcripts and metadata provided from a specific YouTube channel. "
+                "You must answer questions about the channel's videos, their content, titles, and publication dates. "
+                "You exist to provide clear, accurate, and context-aware answers based on the video transcripts and metadata."
+            ))
         
         # Initialize LangChain components
         self.llm = ChatGoogleGenerativeAI(model=model_name, api_key=self.api_key)
-
-        self.system_message = SystemMessage(content=(
-            "You are an intelligent assistant for a YouTube channel archive. "
-            "Your role is to analyze video transcripts and metadata provided from a specific YouTube channel. "
-            "You must answer questions about the channel's videos, their content, titles, and publication dates. "
-            "You exist to provide clear, accurate, and context-aware answers based on the video transcripts and metadata."
-        ))
 
         self.embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=self.api_key)
 
@@ -28,8 +29,7 @@ class NotebookLmApp:
         self.documents = self.load_subtitles()
         print("documents loaded")
 
-        self.vectorstore = FAISS.from_documents(self.documents, self.embeddings)
-        print("vectorstore loaded")
+        self.load_vectorstore()
 
         self.retriever = self.vectorstore.as_retriever()
         print("retriever loaded")
@@ -39,10 +39,20 @@ class NotebookLmApp:
             retriever = self.retriever,
             chain_type="stuff",
             return_source_documents=True,
-            system_message=self.system_message
         )
 
 
+        
+
+    def load_vectorstore(self):
+        if os.path.exists(os.path.join('data', self.channel_id,'vectorstore', 'index.faiss')) and os.path.exists(os.path.join('data', self.channel_id,'vectorstore', 'index.pkl')):
+            print('Vectorstore loaded from local')
+            self.vectorstore = FAISS.load_local(os.path.join('data', self.channel_id, 'vectorstore'), embeddings=self.embeddings, allow_dangerous_deserialization=True,)
+        else:
+            if not os.path.isdir(os.path.join('data', self.channel_id, 'vectorstore')): os.mkdir(os.path.join('data', self.channel_id, 'vectorstore'))
+            self.vectorstore = FAISS.from_documents(self.documents, self.embeddings)
+            self.vectorstore.save_local(os.path.join('data', self.channel_id, 'vectorstore'))
+            print('Vectorstore loaded and saved')
 
 
     def load_subtitles(self):
@@ -54,10 +64,16 @@ class NotebookLmApp:
 
                 loader = TextLoader(subtitle_path, encoding='utf-8')
                 document = loader.load()
+                document[0].page_content = (
+                    f"Title: {video['title']}\n"
+                    f"Published At: {video['publishedAt']}\n"
+                    f"Transcript: {document[0].page_content}"
+                )
                 document[0].metadata = {
                     "video_id": video['id'],
                     "title": video['title'],
-                    "publishedAt": video['publishedAt']
+                    "publishedAt": video['publishedAt'],
+                    "channel_id": self.channel_id
                 }
 
                 documents.extend(document)
@@ -65,9 +81,7 @@ class NotebookLmApp:
         return documents
     
     def query(self, query):
-        response = self.qa_chain.invoke([
-            HumanMessage(content=query)
-        ])
+        response = self.qa_chain.invoke({"system": "My name is Aditya Sharma.", "query": query})
         result = response["result"]
         sources = response["source_documents"]
 
@@ -89,10 +103,3 @@ class NotebookLmApp:
             response = self.query(user_query)
             print("\nResponse:")
             print(f"\t{response}")
-
-            
-if __name__ == "__main__":
-    API_KEY = "AIzaSyADIgPArEEIgcvfpEBz4GkgxG6xLSz5YO4"
-
-    app = NotebookLmApp("UCwpr_shE_KEjoOVFqbwaGYQ", API_KEY)
-    app.run()

@@ -1,17 +1,19 @@
 import os
 import json
 import logging
+import argparse
 from datetime import datetime
 import googleapiclient.discovery
 import googleapiclient.errors
 from youtube_transcript_api import YouTubeTranscriptApi
+from youtubeai import YoutubeChannelLm
 
-class YoutubeAi:
-    def __init__(self, channel_id):
+class SubtitleExtractor:
+    def __init__(self, channel_id, api_key):
         self.channel_id = channel_id
 
         # API keys
-        self.api_key = os.getenv("YOUTUBE_API_KEY") or "AIzaSyADIgPArEEIgcvfpEBz4GkgxG6xLSz5YO4"
+        self.api_key = api_key
         
         self.videos = []
         self.loading = False
@@ -27,7 +29,8 @@ class YoutubeAi:
             ["data"],
             ["data", channel_id],
             ["data", channel_id, "subtitles"],
-            ["data", channel_id, "videos"]
+            ["data", channel_id, "videos"],
+            ['data', channel_id, 'vectorstore']
         ])
 
         # logging
@@ -133,5 +136,25 @@ class YoutubeAi:
             self.get_video_subtitle(video['id'])
         self.logger.info("Execution completed.")
 
-youtubeai = YoutubeAi('UCwpr_shE_KEjoOVFqbwaGYQ')
-youtubeai.execute()
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Create a Ai chatbot for your own youtube channel.")
+
+    parser.add_argument("-e", "--extract-data", action="store_true", help="Extract youtube subtitles data and store them.")
+    parser.add_argument('-r', '--run-model', action="store_true", help="Run your ai model after extracting data.")
+
+    parser.add_argument('--channel-id', type=str, help='Provide your channel id, ex:- UCwpr_shE_KEjoOVFqbwGYQ', required=True)
+    parser.add_argument('--api-key', type=str, help='youtube api key to extract the list of channel video. (Any public api will be valid not the channel specific one.)', required=True)
+
+    args = parser.parse_args()
+
+    if args.extract_data:
+        print(f"Extracting data for channel {args.channel_id} ...")
+        subtitle_extractor = SubtitleExtractor(args.channel_id, args.api_key)
+        subtitle_extractor.execute()
+    elif args.run_model:
+        print(f"Training and running your ai bot.")
+        youtube_channelml = YoutubeChannelLm(args.channel_id, args.api_key)
+        youtube_channelml.run()
+    else:
+        parser.print_help()
