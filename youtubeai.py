@@ -6,7 +6,6 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.chains import RetrievalQA
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_astradb import AstraDBVectorStore
 
 class YoutubeChannelLm:
     def __init__(self, channel_id, api_key, model_name="gemini-1.5-flash"):
