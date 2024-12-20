@@ -1,12 +1,17 @@
 import os
 import json
+from dotenv import load_dotenv
+from langchain.chains import RetrievalQA
+from langchain_astradb import AstraDBVectorStore
+from langchain_core.messages import SystemMessage
+from langchain_community.vectorstores import FAISS
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.document_loaders import TextLoader
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_community.vectorstores import FAISS
-from langchain.chains import RetrievalQA
-from langchain_core.messages import HumanMessage, SystemMessage
+from cassandra.cluster import Cluster, ExecutionProfile, EXEC_PROFILE_DEFAULT, ProtocolVersion
+from cassandra.auth import PlainTextAuthProvider
 
+load_dotenv()
 class YoutubeChannelLm:
     def __init__(self, channel_id, api_key, model_name="gemini-1.5-flash"):
         self.api_key = api_key
@@ -28,7 +33,7 @@ class YoutubeChannelLm:
         self.documents = self.load_subtitles()
         print("documents loaded")
 
-        self.load_vectorstore()
+        self.load_astra_vstore()
 
         self.retriever = self.vectorstore.as_retriever()
         print("retriever loaded")
@@ -40,7 +45,15 @@ class YoutubeChannelLm:
             return_source_documents=True,
         )
 
-
+    def load_astra_vstore(self):
+        self.vectorstore = AstraDBVectorStore(
+            collection_name=self.channel_id,
+            embedding=self.embeddings,
+            token=os.getenv('ASTRA_DB_APPLICATION_TOKEN'),
+            api_endpoint=os.getenv('ASTRA_DB_API_ENDPOINT'),
+            namespace=os.getenv('ASTRA_DB_KEYSPACE')
+        )
+        self.vectorstore.add_documents(self.documents)
         
 
     def load_vectorstore(self):
