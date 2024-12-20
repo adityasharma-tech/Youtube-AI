@@ -6,6 +6,12 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.chains import RetrievalQA
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain.chains import create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.chat_history import BaseChatMessageHistory
+from langchain_community.chat_message_histories import ChatMessageHistory
+from langchain_core.runnables.history import RunnableWithMessageHistory
 
 class YoutubeChannelLm:
     def __init__(self, channel_id, api_key, model_name="gemini-1.5-flash"):
@@ -18,6 +24,16 @@ class YoutubeChannelLm:
                 "You must answer questions about the channel's videos, their content, titles, and publication dates. "
                 "You exist to provide clear, accurate, and context-aware answers based on the video transcripts and metadata."
             ))
+        
+        self.qa_system_prompt = """You are an assistant for question-answering tasks only related to the context not too much other than that, you can do some. \
+        You are an intelligent assistant for a YouTube channel archive. \
+        Your role is to analyze video transcripts and metadata provided from a specific YouTube channel. \
+        You must answer questions about the channel's videos, their content, titles, and publication dates. \
+        You exist to provide clear, accurate, and context-aware answers based on the video transcripts and metadata. \
+        If you don't know the answer, just say that you don't know. \
+        Use three sentences maximum and keep the answer concise.\
+
+        {context}"""
         
         # Initialize LangChain components
         self.llm = ChatGoogleGenerativeAI(model=model_name, api_key=self.api_key)
@@ -33,14 +49,31 @@ class YoutubeChannelLm:
         self.retriever = self.vectorstore.as_retriever()
         print("retriever loaded")
 
-        self.qa_chain = RetrievalQA.from_chain_type(
-            llm=self.llm,
-            retriever = self.retriever,
-            chain_type="stuff",
-            return_source_documents=True,
+        self.qa_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", self.qa_system_prompt),
+                MessagesPlaceholder("chat_history"),
+                ("human", "{input}"),
+            ]
         )
 
+        self.store = {}
 
+        self.question_answer_chain = create_stuff_documents_chain(self.llm, self.qa_prompt)
+        self.rag_chain = create_retrieval_chain(self.retriever, self.question_answer_chain)
+
+        self.conversational_rag_chain = RunnableWithMessageHistory(
+            self.rag_chain,
+            self.get_session_history,
+            input_messages_key="input",
+            history_messages_key="chat_history",
+            output_messages_key="answer",
+        )
+
+    def get_session_history(self, session_id: str) -> BaseChatMessageHistory:
+        if session_id not in self.store:
+            self.store[session_id] = ChatMessageHistory()
+        return self.store[session_id]
         
 
     def load_vectorstore(self):
@@ -80,14 +113,14 @@ class YoutubeChannelLm:
         return documents
     
     def query(self, query):
-        response = self.qa_chain.invoke({"system": "My name is Aditya Sharma.", "query": query})
-        result = response["result"]
-        sources = response["source_documents"]
+        response = self.conversational_rag_chain.invoke(
+            {"input": query},
+            config={
+                "configurable": {"session_id": "abc123"}
+            },  # constructs a key "abc123" in `store`.
+        )
+        result = response["answer"]
 
-        # Optionally, you can format the output to include sources
-        print("\nSources:")
-        for source in sources:
-            print(f"\tVideo ID: {source.metadata['video_id']}")
         return result
 
     def run(self):
