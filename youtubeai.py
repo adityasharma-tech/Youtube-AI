@@ -17,6 +17,22 @@ class YoutubeChannelLm:
         self.api_key = api_key
         self.channel_id = channel_id
 
+        self.cloud_config= {
+            'secure_connect_bundle': EXEC_PROFILE_DEFAULT,
+            'connect_timeout': 30
+        }
+
+        self.auth_provider=PlainTextAuthProvider("token", os.environ["ASTRA_DB_APPLICATION_TOKEN"])
+        self.profile = ExecutionProfile(request_timeout=30)
+
+        self.cluster = Cluster(
+            cloud=self.cloud_config,
+            auth_provider=self.auth_provider,
+            execution_profiles={EXEC_PROFILE_DEFAULT: self.profile},
+            protocol_version=ProtocolVersion.V4
+        )
+        self.session = self.cluster.connect()
+
         self.system_message = SystemMessage(content=(
                 "You are an intelligent assistant for a YouTube channel archive. "
                 "Your role is to analyze video transcripts and metadata provided from a specific YouTube channel. "
@@ -46,14 +62,44 @@ class YoutubeChannelLm:
         )
 
     def load_astra_vstore(self):
-        self.vectorstore = AstraDBVectorStore(
-            collection_name=self.channel_id,
-            embedding=self.embeddings,
-            token=os.getenv('ASTRA_DB_APPLICATION_TOKEN'),
-            api_endpoint=os.getenv('ASTRA_DB_API_ENDPOINT'),
-            namespace=os.getenv('ASTRA_DB_KEYSPACE')
-        )
-        self.vectorstore.add_documents(self.documents)
+        # Check if collection exists
+        query = f"SELECT table_name FROM system_schema.tables WHERE keyspace_name='{os.getenv('ASTRA_DB_KEYSPACE')}' AND table_name='{self.channel_id}'"
+        result = self.session.execute(query).one()
+
+        if result:
+            print(f"Collection '{self.channel_id}' exists.")
+            # Check if documents are already uploaded
+            query = f"SELECT COUNT(*) FROM {self.channel_id}"
+            count_result = self.session.execute(query).one()
+            if count_result[0] > 0:
+                print(f"Documents already uploaded in collection '{self.channel_id}'.")
+                self.vectorstore = AstraDBVectorStore(
+                    collection_name=self.channel_id,
+                    embedding=self.embeddings,
+                    token=os.getenv('ASTRA_DB_APPLICATION_TOKEN'),
+                    api_endpoint=os.getenv('ASTRA_DB_API_ENDPOINT'),
+                    namespace=os.getenv('ASTRA_DB_KEYSPACE')
+                )
+            else:
+                print(f"No documents found in collection '{self.channel_id}'. Adding documents.")
+                self.vectorstore = AstraDBVectorStore(
+                    collection_name=self.channel_id,
+                    embedding=self.embeddings,
+                    token=os.getenv('ASTRA_DB_APPLICATION_TOKEN'),
+                    api_endpoint=os.getenv('ASTRA_DB_API_ENDPOINT'),
+                    namespace=os.getenv('ASTRA_DB_KEYSPACE')
+                )
+                self.vectorstore.add_documents(self.documents)
+        else:
+            print(f"Collection '{self.channel_id}' does not exist. Creating collection and adding documents.")
+            self.vectorstore = AstraDBVectorStore(
+                collection_name=self.channel_id,
+                embedding=self.embeddings,
+                token=os.getenv('ASTRA_DB_APPLICATION_TOKEN'),
+                api_endpoint=os.getenv('ASTRA_DB_API_ENDPOINT'),
+                namespace=os.getenv('ASTRA_DB_KEYSPACE')
+            )
+            self.vectorstore.add_documents(self.documents)
         
 
     def load_vectorstore(self):
