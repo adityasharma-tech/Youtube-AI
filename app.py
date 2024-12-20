@@ -19,5 +19,5 @@ def submit_data():
     return jsonify({"message": response})
 
 if __name__ == '__main__':
-    app.run(debug=True, port=8088)
+    app.run(debug=True, port=7860)
 
